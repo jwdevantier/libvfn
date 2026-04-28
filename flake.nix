@@ -7,28 +7,52 @@
   outputs = { self, nixpkgs }:
     let
       libvfnVersion = "5.1.0";
-      # lists supported systems
       allSystems = [ "x86_64-linux" "aarch64-linux" ];
 
       forAllSystems = fn:
         nixpkgs.lib.genAttrs allSystems
-        (system: fn { pkgs = import nixpkgs { inherit system; }; });
+          (system: fn { pkgs = import nixpkgs { inherit system; }; });
 
-    in {
-      formatter = forAllSystems ({ pkgs }: pkgs.nixfmt);
-      packages = forAllSystems ({ pkgs }: rec {
-        kernelHeaders = pkgs.linuxHeaders;
-        libvfn = pkgs.stdenv.mkDerivation {
+      # Default build options
+      defaultOptions = {
+        docs        = false;
+        libnvme     = false;
+        profiling   = false;
+      };
+
+      # Build the mesonFlags from options
+      mkMesonFlags = opts: [
+        "-Ddocs=${if opts.docs then "enabled" else "disabled"}"
+        "-Dlibnvme=${if opts.libnvme then "enabled" else "disabled"}"
+        "-Dprofiling=${if opts.profiling then "true" else "false"}"
+      ];
+
+      # Build the libvfn package for a given pkgs set and config
+      mkLibvfn = { pkgs, config, ... }:
+        pkgs.stdenv.mkDerivation {
           pname = "libvfn";
           version = libvfnVersion;
           src = ./.;
-          mesonFlags = [
-            "-Ddocs=disabled"
-            "-Dlibnvme=disabled"
-            "-Dprofiling=false"
-            "-Dlinux-headers=${kernelHeaders}/include"
-          ];
-          nativeBuildInputs = with pkgs; [ meson ninja pkg-config perl ];
+          mesonFlags = mkMesonFlags config;
+          nativeBuildInputs = with pkgs;
+            [ meson ninja pkg-config perl ]
+            ++ pkgs.lib.optionals config.docs [ python3Packages.sphinx ];
+          buildInputs = with pkgs;
+            pkgs.lib.optionals config.libnvme [ libnvme ];
+        };
+
+    in {
+
+      lib = {
+        defaultOptions = defaultOptions;
+      };
+
+      formatter = forAllSystems ({ pkgs }: pkgs.nixfmt);
+      packages = forAllSystems ({ pkgs }: rec {
+        # Overridable via .override { config = defaultOptions // { profiling = true; }; }
+        libvfn = nixpkgs.lib.makeOverridable mkLibvfn {
+          pkgs = pkgs;
+          config = defaultOptions;
         };
         default = libvfn;
       });
