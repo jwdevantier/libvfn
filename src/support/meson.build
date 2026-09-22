@@ -2,6 +2,7 @@ support_sources = files(
   'io.c',
   'log.c',
   'mem.c',
+  'mmio.c',
   'ticks.c',
   'timer.c',
 )
